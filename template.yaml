@@ -1,0 +1,239 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: "AWS::Serverless-2016-10-31"
+Description: PARCA application on AWS Lambda
+
+Globals:
+  Function:
+    Timeout: 25
+    Runtime: nodejs18.x
+    Tracing: Active
+    MemorySize: 512
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        ACCOUNT_NAME: "maine"
+        AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
+        DOCUMENTDB_CERTS_KEY_NAME: "ssl/global-bundle.pem"
+        DOCUMENT_DB_SECRET_NAME: !Sub "{{resolve:ssm:/ovg/${stage}/global/documentdb/secret/name}}"
+        REGION: !Sub "${AWS::Region}"
+    VpcConfig:
+      SecurityGroupIds:
+        - !Sub "{{resolve:ssm:/ovg/${stage}/global/vpc/security-group}}"
+      SubnetIds:
+        - !Sub "{{resolve:ssm:/ovg/${stage}/global/vpc/private/subnet-1}}"
+        - !Sub "{{resolve:ssm:/ovg/${stage}/global/vpc/private/subnet-2}}"
+        - !Sub "{{resolve:ssm:/ovg/${stage}/global/vpc/private/subnet-3}}"
+        - !Sub "{{resolve:ssm:/ovg/${stage}/global/vpc/private/subnet-4}}"
+        - !Sub "{{resolve:ssm:/ovg/${stage}/global/vpc/private/subnet-5}}"
+        - !Sub "{{resolve:ssm:/ovg/${stage}/global/vpc/private/subnet-6}}"
+
+  Api:
+    TracingEnabled: true
+
+Parameters:
+  stage:
+    Type: String
+    Default: sandbox
+    Description: (Required) the environment name of the deployment (e.g. sb, dev, qa, uat, prod), defaults to dev.
+    AllowedValues:
+      - sandbox
+      - dev
+      - qa
+      - uat
+      - prod
+  product:
+    Type: String
+    Default: parca
+  version:
+    Type: String
+    Default: v1
+    Description: (Required) the version of the deployment (e.g. v1), defaults to v1.
+
+Mappings:
+  EnvironmentConfig:
+    sandbox:
+      LogRetention: 30
+    dev:
+      LogRetention: 30
+    qa:
+      LogRetention: 60
+    uat:
+      LogRetention: 90
+    prod:
+      LogRetention: 365
+
+Resources:
+  # Resources for Backoffice
+  MainBackofficeAPIGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${stage}-${product}-bo-api-rest"
+      StageName: !Ref stage
+      DisableExecuteApiEndpoint: true
+      Domain:
+        CertificateArn: !Sub "{{resolve:ssm:/${stage}/${product}/api/protected/domain/certificate}}"
+        DomainName: !Sub "{{resolve:ssm:/${stage}/${product}/api/protected/domain/name}}"
+        Route53:
+          HostedZoneId: !Sub "{{resolve:ssm:/${stage}/${product}/route53/hosted-zone}}"
+      Cors:
+        AllowMethods: "'OPTIONS,POST,GET,PUT,DELETE,PATCH'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      EndpointConfiguration:
+        Type: REGIONAL
+
+  SettingsBOFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${stage}-${product}-bo-${version}-settings"
+      Description: "Settings lambda"
+      CodeUri: dist/bo/apps/backend-backoffice/src/lambdas/settings/
+      Handler: serverless.handler
+      Timeout: 20
+      Layers:
+        - !Ref SSLLayer
+        - !Ref NodeModulesLayer
+      LoggingConfig:
+        LogGroup: !Ref CloudWatchLogsGroup
+        LogFormat: JSON
+        ApplicationLogLevel: DEBUG
+        SystemLogLevel: INFO
+      Policies:
+        - !Ref PolicySecretMongo
+        - Version: 2012-10-17
+          Statement:
+            - Sid: CloudWatchLogGroup
+              Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !GetAtt CloudWatchLogsGroup.Arn
+      Events:
+        SettingBOApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MainBackofficeAPIGateway
+            Path: /account/{accountId}/settings/{proxy+}
+            Method: ANY
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: es2020
+        Sourcemap: false
+        External:
+          - "@nestjs/microservices"
+          - "@aws-lambda-powertools/logger"
+          - "class-transformer/storage"
+          - "@nestjs/websockets/socket-module"
+        EntryPoints:
+          - serverless.js
+
+  # Resources for Mobile
+  MainMobileAPIGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${stage}-${product}-mo-api-rest"
+      StageName: !Ref stage
+      DisableExecuteApiEndpoint: true
+      Domain:
+        CertificateArn: !Sub "{{resolve:ssm:/${stage}/${product}/api/protected/domain/certificate}}"
+        DomainName: !Sub "{{resolve:ssm:/${stage}/${product}/api/protected/domain/name}}"
+        Route53:
+          HostedZoneId: !Sub "{{resolve:ssm:/${stage}/${product}/route53/hosted-zone}}"
+      Cors:
+        AllowMethods: "'OPTIONS,POST,GET,PUT,DELETE,PATCH'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      EndpointConfiguration:
+        Type: REGIONAL
+
+  SettingsMOFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${stage}-${product}-mo-${version}-settings"
+      Description: "Settings lambda"
+      CodeUri: dist/mo/apps/backend-mobile/src/lambdas/settings/
+      Handler: serverless.handler
+      Timeout: 20
+      Layers:
+        - !Ref SSLLayer
+        - !Ref NodeModulesLayer
+      LoggingConfig:
+        LogGroup: !Ref CloudWatchLogsGroup
+        LogFormat: JSON
+        ApplicationLogLevel: DEBUG
+        SystemLogLevel: INFO
+      Policies:
+        - !Ref PolicySecretMongo
+        - Version: 2012-10-17
+          Statement:
+            - Sid: CloudWatchLogGroup
+              Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !GetAtt CloudWatchLogsGroup.Arn
+      Events:
+        SettingsMOApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MainMobileAPIGateway
+            Path: /account/{accountId}/settings/{proxy+}
+            Method: ANY
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: es2020
+        Sourcemap: false
+        External:
+          - "@nestjs/microservices"
+          - "@aws-lambda-powertools/logger"
+          - "class-transformer/storage"
+          - "@nestjs/websockets/socket-module"
+        EntryPoints:
+          - serverless.js
+
+  # Managed Policy for Secret Manager Access
+  PolicySecretMongo:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: "A custom policy Secret Mongo"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: "*"
+
+  # Lambda Layers
+  NodeModulesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "${stage}-${product}-${version}-layer-powertools"
+      Description: !Sub "Layer with Common Dependencies ${stage}-${product}-${version}"
+      ContentUri: layer/powertools/
+      CompatibleRuntimes:
+        - nodejs18.x
+    Metadata:
+      BuildMethod: nodejs18.x
+      BuildArchitecture: x86_64
+
+  SSLLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: ssl-layer
+      Description: SSL certificates layer
+      ContentUri: ssl-layer.zip
+      CompatibleRuntimes:
+        - nodejs18.x
+
+  # CloudWatch Logs Group
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${stage}-${product}-${version}"
+      RetentionInDays: !FindInMap [EnvironmentConfig, !Ref stage, LogRetention]

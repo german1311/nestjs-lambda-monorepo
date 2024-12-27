@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json.schemastore.org/nest-cli",
+    "collection": "@nestjs/schematics",
+    "sourceRoot": "apps/backend-backoffice/src",
+    "monorepo": true,
+    "root": "apps/backend-backoffice",
+    "compilerOptions": {
+        "deleteOutDir": true,
+        "webpack": false,
+        "tsConfigPath": "apps/backend-backoffice/tsconfig.app.json"
+    },
+    "projects": {
+        "shared": {
+            "type": "library",
+            "root": "libs/shared",
+            "entryFile": "index",
+            "sourceRoot": "libs/shared/src",
+            "compilerOptions": {
+                "tsConfigPath": "libs/shared/tsconfig.lib.json"
+            }
+        },
+        "backend-backoffice": {
+            "type": "application",
+            "root": "apps/backend-backoffice",
+            "entryFile": "main",
+            "sourceRoot": "apps/backend-backoffice/src",
+            "compilerOptions": {
+                "tsConfigPath": "apps/backend-backoffice/tsconfig.app.json"
+            }
+        },
+        "backend-mobile": {
+            "type": "application",
+            "root": "apps/backend-mobile",
+            "entryFile": "main",
+            "sourceRoot": "apps/backend-mobile/src",
+            "compilerOptions": {
+                "tsConfigPath": "apps/backend-mobile/tsconfig.app.json"
+            }
+        }
+    }
+}
